@@ -1,7 +1,10 @@
 // RFC 2616, Section 6.1.1
 // https://www.rfc-editor.org/rfc/rfc2616
 
-#[derive(Copy, Clone)]
+use std::io::{BufRead, BufReader, Read};
+use std::net::TcpStream;
+
+#[derive(Copy, Clone, Debug)]
 pub enum StatusCode {
     Continue = 100,
     SwitchingProtocols = 101,
@@ -46,21 +49,74 @@ impl StatusCode {
     }
 }
 
+#[derive(Debug)]
+pub struct HttpHeader {
+    pub name: String,
+    pub value: String,
+}
+
+impl HttpHeader {
+    pub fn from_string(s: String) -> HttpHeader {
+        let a = s.split(':').collect::<Vec<_>>();
+        if a.len() < 2 {
+            panic!("invalid header");
+        }
+        return HttpHeader {
+            name: a[0].to_string(),
+            value: a[1].to_string(),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct HttpRequest {
     pub method: String,
     pub path: String,
-    pub headers: Vec<String>,
+    pub headers: Vec<HttpHeader>,
     pub body: String,
 }
 
 impl HttpRequest {
-    pub fn from_request(a: Vec<String>) -> HttpRequest {
-        let mut request_line = a[0].split(' ').collect::<Vec<&str>>();
+    pub fn from_buffer(mut buffer: BufReader<&mut TcpStream>) -> HttpRequest {
+        let mut request_line = String::new();
+        buffer.read_line(&mut request_line).unwrap();
+        let l: Vec<_> = buffer.by_ref().lines()
+            .map(|x| x.unwrap())
+            .take_while(|x| !x.is_empty())
+            .map(|x| HttpHeader::from_string(x))
+            .collect();
+
+        let request_line_pat: Vec<_> = request_line.split(' ')
+            .collect();
+
         return HttpRequest {
-            method: request_line[0].to_string(),
-            path: request_line[1].to_string(),
-            headers: a,
-            body: "123".to_string(),
-        };
+            method: request_line_pat[0].to_string(),
+            path: request_line_pat[1].to_string(),
+            headers: l,
+            body: "".to_string(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct HttpResponse {
+    pub status: StatusCode,
+    pub body: String,
+}
+
+impl HttpResponse {
+    pub fn to_string(&self) -> String {
+        let mut response = "HTTP/1.1".to_string();
+        response.push_str(" ");
+        response.push_str(self.status.to_string().as_str());
+        response.push_str(" ");
+        response.push_str(self.status.to_reason_phrase());
+        response.push_str("\nContent-length: ");
+        response.push_str(self.body.len().to_string().as_str());
+        response.push_str("\n\n");
+        response.push_str(self.body.as_str());
+        response.push_str("\n");
+
+        return response;
     }
 }
